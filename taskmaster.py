@@ -19,6 +19,8 @@ def ensure_dir():
 
 def load_tasks():
     ensure_dir()
+    if not TASKS_FILE.exists():
+        save_tasks([])
     with open(TASKS_FILE) as f:
         return json.load(f)
 
