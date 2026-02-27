@@ -40,7 +40,7 @@ def save_history(history):
 def add_task(description, priority="medium", due=None, tags=None, estimate_minutes=30):
     tasks = load_tasks()
     task = {
-        "id": len(tasks) + 1,
+        "id": max((t["id"] for t in tasks), default=0) + 1,
         "description": description,
         "priority": priority,
         "due": due,
@@ -146,7 +146,7 @@ def ai_prioritize():
                 if days_until <= 1: score += 30
                 elif days_until <= 3: score += 20
                 elif days_until <= 7: score += 10
-            except:
+            except (ValueError, TypeError):
                 pass
         
         return score
@@ -293,3 +293,6 @@ if __name__ == "__main__":
     
     elif cmd == "brief":
         print(daily_briefing())
+    else:
+        print(f"Unknown command: {cmd}")
+        print("Run without arguments to see available commands.")
