@@ -235,6 +235,69 @@ def daily_briefing():
     
     return "\n".join(lines)
 
+def streak():
+    """Calculate and display the current daily completion streak."""
+    history = load_history()
+    if not history:
+        return _render_streak(0)
+
+    # Collect unique completion dates (YYYY-MM-DD) from history
+    dates = set()
+    for h in history:
+        raw = h.get("completed_at", "")
+        if raw:
+            try:
+                dates.add(datetime.fromisoformat(raw).date())
+            except ValueError:
+                pass
+
+    if not dates:
+        return _render_streak(0)
+
+    today = datetime.now().date()
+    current_streak = 0
+    check = today
+    while check in dates:
+        current_streak += 1
+        check = check - timedelta(days=1)
+
+    # If nothing done today yet, start counting from yesterday
+    if today not in dates:
+        check = today - timedelta(days=1)
+        while check in dates:
+            current_streak += 1
+            check = check - timedelta(days=1)
+
+    return _render_streak(current_streak)
+
+
+def _render_streak(n):
+    """Return ASCII art streak display."""
+    fire = ["🔥", "🔥🔥", "🔥🔥🔥", "🔥🔥🔥🔥", "🔥🔥🔥🔥🔥"]
+    flame = fire[min(n - 1, len(fire) - 1)] if n > 0 else "❄️ "
+
+    messages = {
+        0: "Start your streak today!",
+        1: "Day 1 — every legend starts here.",
+        2: "Two days strong — keep going!",
+        3: "Hat-trick! Three days of wins.",
+        7: "One full week. You're unstoppable.",
+        14: "Two weeks — pure discipline.",
+        30: "A MONTH?! You are the algorithm.",
+    }
+    msg = next((messages[k] for k in sorted(messages.keys(), reverse=True) if n >= k),
+               messages[0])
+
+    bar = "█" * min(n, 20) + "░" * (20 - min(n, 20))
+    return (
+        f"\n┌─────────────────────────────┐\n"
+        f"│  {flame} STREAK: {n} day{'s' if n != 1 else ''}  {flame}\n"
+        f"│  [{bar}]\n"
+        f"│  {msg}\n"
+        f"└─────────────────────────────┘"
+    )
+
+
 COMMANDS = {
     "add": ("Add task", "add <task> [--high|--medium|--low] [--due YYYY-MM-DD]"),
     "ls": ("List tasks", "ls [--high|--medium|--low] [--context job|code|content]"),
@@ -243,6 +306,7 @@ COMMANDS = {
     "next": ("Next task", "next"),
     "stats": ("Statistics", "stats"),
     "brief": ("Daily briefing", "brief"),
+    "streak": ("Daily streak", "streak"),
 }
 
 if __name__ == "__main__":
@@ -293,3 +357,6 @@ if __name__ == "__main__":
     
     elif cmd == "brief":
         print(daily_briefing())
+
+    elif cmd == "streak":
+        print(streak())
