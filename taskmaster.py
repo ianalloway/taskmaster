@@ -12,6 +12,9 @@ from pathlib import Path
 TASKS_FILE = Path.home() / ".taskmaster" / "tasks.json"
 HISTORY_FILE = Path.home() / ".taskmaster" / "history.json"
 
+PRIORITY_WEIGHT = {"high": 4, "medium": 2, "low": 1}
+PRIORITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+
 
 def ensure_dir():
     TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +83,14 @@ def is_overdue(task: dict) -> bool:
         return False
 
 
+def _fmt_due(task: dict) -> str:
+    return f" | due {task['due']}" if task.get("due") else ""
+
+
+def _fmt_overdue(overdue: bool) -> str:
+    return " ⚠️ OVERDUE" if overdue else ""
+
+
 def add_task(description, priority="medium", due=None, tags=None, estimate_minutes=30):
     tasks = load_tasks()
     task = {
@@ -140,10 +151,9 @@ def search_tasks(query: str) -> str:
         return f"No tasks matching '{query}'."
     lines = [f"\n🔍 Results for '{query}':"]
     for t in matches:
-        emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
-        due_str = f" | due {t['due']}" if t.get("due") else ""
-        overdue_str = " ⚠️ OVERDUE" if is_overdue(t) else ""
-        lines.append(f"{emoji} #{t['id']} [{t['priority'][:1].upper()}] {t['description']}{due_str}{overdue_str}")
+        overdue = is_overdue(t)
+        emoji = PRIORITY_EMOJI.get(t["priority"], "⚪")
+        lines.append(f"{emoji} #{t['id']} [{t['priority'][:1].upper()}] {t['description']}{_fmt_due(t)}{_fmt_overdue(overdue)}")
     return "\n".join(lines)
 
 
@@ -162,27 +172,28 @@ def list_tasks(filter_priority=None, filter_context=None, filter_tag=None, show_
     if not tasks:
         return "No tasks."
 
+    # Precompute overdue once per task to avoid repeated datetime parsing
+    for t in tasks:
+        t["_overdue"] = is_overdue(t)
+
     # Sort: overdue first, then by priority weight, then by creation date
-    priority_weight = {"high": 3, "medium": 2, "low": 1}
     tasks.sort(key=lambda t: (
-        not is_overdue(t),
-        -priority_weight.get(t["priority"], 2),
+        not t["_overdue"],
+        -PRIORITY_WEIGHT.get(t["priority"], 2),
         t.get("created", ""),
     ))
 
     lines = ["\n📋 TASKS:"]
     for t in tasks:
-        emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
+        emoji = PRIORITY_EMOJI.get(t["priority"], "⚪")
         ctx = t.get("context", "•")
-        due_str = f" | due {t['due']}" if t.get("due") else ""
-        overdue_str = " ⚠️ OVERDUE" if is_overdue(t) else ""
         tag_str = f" [{', '.join(t['tags'])}]" if t.get("tags") else ""
         lines.append(
             f"{emoji} #{t['id']} [{t['priority'][:1].upper()}] {t['description']}"
-            f"{due_str}{overdue_str}{tag_str} ({ctx})"
+            f"{_fmt_due(t)}{_fmt_overdue(t['_overdue'])}{tag_str} ({ctx})"
         )
 
-    overdue_count = sum(1 for t in tasks if is_overdue(t))
+    overdue_count = sum(1 for t in tasks if t["_overdue"])
     if overdue_count:
         lines.append(f"\n⚠️  {overdue_count} overdue task{'s' if overdue_count != 1 else ''}")
 
@@ -230,10 +241,8 @@ def ai_prioritize():
             context_scores[ctx] = 0
         context_scores[ctx] += 1
 
-    priority_weight = {"high": 4, "medium": 2, "low": 1}
-
     def score_task(t):
-        score = priority_weight.get(t["priority"], 2) * 10
+        score = PRIORITY_WEIGHT.get(t["priority"], 2) * 10
 
         # Overdue tasks jump to the top
         if is_overdue(t):
@@ -266,21 +275,18 @@ def ai_prioritize():
 
     lines = ["\n🤖 AI PRIORITIZED:"]
     for i, t in enumerate(tasks, 1):
-        overdue_str = " ⚠️ OVERDUE" if is_overdue(t) else ""
-        lines.append(f"{i}. {t['description']} [{t['priority']}]{overdue_str}")
+        lines.append(f"{i}. {t['description']} [{t['priority']}]{_fmt_overdue(is_overdue(t))}")
 
     return "\n".join(lines)
 
 
-def suggest_next():
+def suggest_next(_tasks=None, _history=None):
     """Suggest the next task based on patterns."""
-    tasks = [t for t in load_tasks() if not t["completed"]]
-    history = load_history()
+    tasks = _tasks if _tasks is not None else [t for t in load_tasks() if not t["completed"]]
+    history = _history if _history is not None else load_history()
 
     if not tasks:
         return "No tasks."
-
-    priority_weight = {"high": 4, "medium": 2, "low": 1}
 
     most_recent_ctx = None
     if history:
@@ -290,13 +296,12 @@ def suggest_next():
         tasks,
         key=lambda t: (
             50 if is_overdue(t) else 0
-        ) + priority_weight.get(t["priority"], 2) * 10 + (
+        ) + PRIORITY_WEIGHT.get(t["priority"], 2) * 10 + (
             5 if t.get("context") == most_recent_ctx else 0
         ),
     )
 
-    overdue_str = " ⚠️ OVERDUE" if is_overdue(best) else ""
-    return f"\n👉 Next: {best['description']} [{best['priority']}]{overdue_str}"
+    return f"\n👉 Next: {best['description']} [{best['priority']}]{_fmt_overdue(is_overdue(best))}"
 
 
 def stats():
@@ -339,6 +344,7 @@ def stats():
 def daily_briefing():
     """Morning task briefing."""
     tasks = [t for t in load_tasks() if not t.get("completed")]
+    history = load_history()
 
     high = [t for t in tasks if t.get("priority") == "high"]
     medium = [t for t in tasks if t.get("priority") == "medium"]
@@ -362,7 +368,7 @@ def daily_briefing():
         for t in high[:3]:
             lines.append(f"    • {t['description']}")
 
-    lines.append(suggest_next())
+    lines.append(suggest_next(_tasks=tasks, _history=history))
 
     return "\n".join(lines)
 
