@@ -367,12 +367,91 @@ def daily_briefing():
     return "\n".join(lines)
 
 
+def snooze_task(task_id: int, days: int = 1) -> str:
+    """Push a task's due date forward by N days (default 1).
+
+    If the task has no due date, snooze sets it to today + N days.
+    """
+    tasks = load_tasks()
+    for t in tasks:
+        if t["id"] == task_id:
+            if t.get("completed"):
+                return f"Task #{task_id} is already completed."
+            current_due = t.get("due")
+            if current_due:
+                try:
+                    base = datetime.fromisoformat(current_due).date()
+                except ValueError:
+                    base = datetime.now().date()
+            else:
+                base = datetime.now().date()
+            new_due = (base + timedelta(days=days)).isoformat()
+            t["due"] = new_due
+            save_tasks(tasks)
+            return f"✓ Snoozed #{task_id} → due {new_due} (+{days}d)"
+    return f"Task #{task_id} not found."
+
+
+def week_view() -> str:
+    """Show a 7-day calendar view of tasks due this week, plus overdue tasks."""
+    tasks = [t for t in load_tasks() if not t.get("completed")]
+    today = datetime.now().date()
+
+    lines = ["\n📅 WEEK VIEW:"]
+
+    # Overdue section at the top
+    overdue = [t for t in tasks if is_overdue(t)]
+    if overdue:
+        lines.append(f"\n  ⚠️  OVERDUE ({len(overdue)}):")
+        for t in sorted(overdue, key=lambda x: x.get("due", ""), reverse=False):
+            emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
+            lines.append(f"    {emoji} #{t['id']} {t['description']} (was due {t['due']})")
+
+    # Day-by-day section
+    has_upcoming = False
+    for offset in range(7):
+        day = today + timedelta(days=offset)
+        day_iso = day.isoformat()
+
+        if offset == 0:
+            day_label = f"Today      {day.strftime('%a %-d %b')}"
+        elif offset == 1:
+            day_label = f"Tomorrow   {day.strftime('%a %-d %b')}"
+        else:
+            day_label = f"           {day.strftime('%a %-d %b')}"
+
+        day_tasks = [
+            t for t in tasks
+            if t.get("due", "").startswith(day_iso) and not is_overdue(t)
+        ]
+
+        if day_tasks:
+            has_upcoming = True
+            lines.append(f"\n  {day_label}")
+            for t in sorted(day_tasks, key=lambda x: {"high": 0, "medium": 1, "low": 2}.get(x["priority"], 1)):
+                emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t["priority"], "⚪")
+                tag_str = f"  [{', '.join(t['tags'])}]" if t.get("tags") else ""
+                lines.append(f"    {emoji} #{t['id']} {t['description']} [{t['priority'][:1].upper()}]{tag_str}")
+
+    if not has_upcoming and not overdue:
+        lines.append("\n  Nothing due this week. 🎉")
+
+    # Summary footer
+    with_due = [t for t in tasks if t.get("due")]
+    no_due = [t for t in tasks if not t.get("due")]
+    lines.append(f"\n  {len(with_due)} task(s) have due dates · {len(no_due)} undated · snooze with: snooze <id> [days]")
+
+    return "\n".join(lines)
+
+
 COMMANDS = {
     "add":    ("Add task",         "add <task> [--high|--medium|--low] [--due YYYY-MM-DD] [--tag TAG]"),
     "ls":     ("List tasks",       "ls [--high|--medium|--low] [--context CTX] [--tag TAG] [--overdue]"),
     "done":   ("Complete",         "done <id>"),
     "delete": ("Delete task",      "delete <id>"),
     "edit":   ("Edit task",        "edit <id> [--desc 'new desc'] [--high|--medium|--low] [--due DATE]"),
+    "snooze": ("Snooze due date",  "snooze <id> [days]"),
+    "week":   ("Week calendar",    "week"),
     "search": ("Search tasks",     "search <keyword>"),
     "ai":     ("AI prioritize",    "ai"),
     "next":   ("Next task",        "next"),
@@ -483,6 +562,17 @@ if __name__ == "__main__":
 
     elif cmd == "brief":
         print(daily_briefing())
+
+    elif cmd == "snooze":
+        if len(sys.argv) < 3:
+            print("Usage: snooze <id> [days]")
+            sys.exit(1)
+        task_id = int(sys.argv[2])
+        days = int(sys.argv[3]) if len(sys.argv) > 3 else 1
+        print(snooze_task(task_id, days))
+
+    elif cmd == "week":
+        print(week_view())
 
     else:
         print(f"Unknown command: {cmd}")
