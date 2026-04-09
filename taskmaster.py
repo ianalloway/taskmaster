@@ -46,7 +46,7 @@ def save_history(history):
 
 def next_id(tasks: list) -> int:
     """Return the next available task ID (fills gaps from deleted tasks)."""
-    existing = {t["id"] for t in tasks}
+    existing = {t["id"] for t in tasks if "id" in t}
     i = 1
     while i in existing:
         i += 1
@@ -575,6 +575,5 @@ if __name__ == "__main__":
         print(week_view())
 
     else:
-        print(f"Unknown command: {cmd}")
-        print("Run without arguments to see usage.")
+        print(f"Error: Unknown command '{cmd}'. For help, run 'taskmaster --help'.")
         sys.exit(1)
