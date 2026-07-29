@@ -3,8 +3,6 @@
 Taskmaster AI - The intelligent task manager that learns your patterns
 """
 import json
-import os
-import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
